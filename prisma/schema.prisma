@@ -1,0 +1,166 @@
+// Data model for the meal planning / waste reduction app.
+// See README.md for a plain-language tour of these tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StorageMethod {
+  FRIDGE
+  FREEZER
+  PANTRY
+}
+
+enum ItemSource {
+  PHOTO
+  GROCERY_LIST
+  MANUAL
+}
+
+model Household {
+  id          String            @id @default(uuid())
+  name        String
+  region      String // e.g. "US-TX" or "AE" — drives shelf-life + pricing lookups
+  budgetTarget Decimal?         @map("budget_target") @db.Decimal(10, 2)
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  members      HouseholdMember[]
+  pantryItems  PantryItem[]
+  mealPlans    MealPlan[]
+
+  @@map("household")
+}
+
+model HouseholdMember {
+  id          String   @id @default(uuid())
+  householdId String   @map("household_id")
+  name        String
+  age         Int?
+  allergies   String[] @default([])
+  dietaryTags String[] @default([]) @map("dietary_tags") // e.g. "vegetarian", "halal", "low-carb"
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@map("household_member")
+}
+
+model PantryItem {
+  id                  String         @id @default(uuid())
+  householdId         String         @map("household_id")
+  ingredientName       String         @map("ingredient_name")
+  quantity            Decimal        @db.Decimal(10, 2)
+  unit                String // "g", "ml", "count", etc.
+  storageMethod        StorageMethod  @map("storage_method")
+  purchaseDate         DateTime?      @map("purchase_date")
+  estimatedExpiryDate  DateTime?      @map("estimated_expiry_date")
+  source               ItemSource     @default(MANUAL)
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@map("pantry_item")
+}
+
+// Reference table of "how long does X last, in region Y, stored how" —
+// used to estimate expiry dates for pantry items. Seeded from USDA
+// FoodKeeper-style data; see README for sourcing notes.
+model ShelfLifeReference {
+  id              String        @id @default(uuid())
+  ingredientName   String        @map("ingredient_name")
+  region          String // country/region code, e.g. "US", "AE"
+  storageMethod    StorageMethod @map("storage_method")
+  estimatedDaysMin Int           @map("estimated_days_min")
+  estimatedDaysMax Int           @map("estimated_days_max")
+  confidence      String // "high" | "medium" | "low"
+  source          String // citation, e.g. "USDA FoodKeeper"
+
+  @@unique([ingredientName, region, storageMethod])
+  @@map("shelf_life_reference")
+}
+
+model Recipe {
+  id                   String   @id @default(uuid())
+  title                String
+  cuisine              String?
+  ingredients          Json // [{ name, quantity, unit }]
+  steps                String[]
+  requiredTools        String[] @default([]) @map("required_tools")
+  dietaryTags          String[] @default([]) @map("dietary_tags")
+  estimatedCostPerServing Decimal? @map("estimated_cost_per_serving") @db.Decimal(10, 2)
+  servings             Int      @default(4)
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  mealPlanRecipes MealPlanRecipe[]
+
+  @@map("recipe")
+}
+
+model MealPlan {
+  id                 String   @id @default(uuid())
+  householdId        String   @map("household_id")
+  weekStart          DateTime @map("week_start")
+  estimatedTotalCost Decimal? @map("estimated_total_cost") @db.Decimal(10, 2)
+  costPerServing     Decimal? @map("cost_per_serving") @db.Decimal(10, 2)
+  wasteScore         Decimal? @map("waste_score") @db.Decimal(5, 2) // higher = more ingredient overlap / less leftover risk
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recipes     MealPlanRecipe[]
+  groceryList GroceryListItem[]
+
+  @@index([householdId])
+  @@map("meal_plan")
+}
+
+// Join table: which recipes are in a given week's plan, and on which day.
+model MealPlanRecipe {
+  id         String   @id @default(uuid())
+  mealPlanId String   @map("meal_plan_id")
+  recipeId   String   @map("recipe_id")
+  dayOfWeek  Int?      @map("day_of_week") // 0-6, optional scheduling
+  cooked     Boolean  @default(false)
+  cookedAt   DateTime? @map("cooked_at")
+
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  recipe   Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@map("meal_plan_recipe")
+}
+
+model GroceryListItem {
+  id             String   @id @default(uuid())
+  mealPlanId     String   @map("meal_plan_id")
+  ingredientName  String   @map("ingredient_name")
+  quantityNeeded Decimal  @map("quantity_needed") @db.Decimal(10, 2)
+  unit           String
+  estimatedPrice Decimal? @map("estimated_price") @db.Decimal(10, 2)
+  actualPrice    Decimal? @map("actual_price") @db.Decimal(10, 2)
+  store          String?
+  purchased      Boolean  @default(false)
+
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+
+  @@map("grocery_list_item")
+}
+
+// Fallback pricing when a live fetch from a retailer fails or isn't wired up yet.
+model IngredientPriceEstimate {
+  id          String   @id @default(uuid())
+  ingredientName String @map("ingredient_name")
+  unit        String
+  avgPrice    Decimal  @map("avg_price") @db.Decimal(10, 2)
+  region      String
+  lastUpdated DateTime @default(now()) @map("last_updated")
+
+  @@unique([ingredientName, unit, region])
+  @@map("ingredient_price_estimate")
+}
