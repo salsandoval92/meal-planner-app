@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Meal Planner — Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #f7f5f0;
+    --card: #ffffff;
+    --ink: #23291f;
+    --muted: #6b7364;
+    --green: #3f7d45;
+    --green-dark: #2e5e33;
+    --amber: #b5762b;
+    --red: #b5432b;
+    --border: #e4e0d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  header {
+    padding: 28px 24px 18px;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header h1 { margin: 0 0 4px; font-size: 22px; }
+  header p { margin: 0; color: var(--muted); font-size: 14px; }
+  main { max-width: 720px; margin: 0 auto; padding: 0 24px 60px; }
+  section.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+  }
+  section.card h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 14px;
+  }
+  .step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--green);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 8px;
+  }
+  .pantry-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+  }
+  .pantry-item:last-child { border-bottom: none; }
+  .pantry-item .qty { color: var(--muted); font-size: 13px; }
+  .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    margin-left: 8px;
+  }
+  .badge.expiring { background: #fbe8de; color: var(--red); }
+  .badge.ok { background: #e7f0e3; color: var(--green-dark); }
+  button {
+    background: var(--green);
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: var(--green-dark); }
+  button:disabled { background: #c7cbc0; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--green-dark);
+    border: 1.5px solid var(--green);
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+  .score-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .score-row .score { font-size: 34px; font-weight: 700; color: var(--green-dark); }
+  .score-row .label { color: var(--muted); font-size: 13px; }
+  .recipe {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .recipe .title { font-weight: 600; font-size: 14.5px; }
+  .recipe .cuisine { color: var(--muted); font-size: 12.5px; }
+  .used-flags { margin-top: 4px; }
+  .grocery-list { list-style: none; padding: 0; margin: 0; }
+  .grocery-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14.5px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .grocery-list li:last-child { border-bottom: none; }
+  .grocery-list .amt { color: var(--muted); }
+  .hidden { display: none; }
+  .empty-hint { color: var(--muted); font-size: 14px; }
+  .footer-note { color: var(--muted); font-size: 12.5px; margin-top: 30px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🥗 Meal Planner — Waste Reduction Demo</h1>
+  <p>Household: <strong id="household-name">loading…</strong> · This page walks through the core loop: pantry → weekly meal plan → cook & update pantry.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2><span class="step-badge">1</span>Current pantry</h2>
+    <div id="pantry-list"><p class="empty-hint">Loading pantry…</p></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step-badge">2</span>Generate this week's meal plan</h2>
+    <p class="empty-hint">Picks 5 recipes that share ingredients and prioritize what's about to expire (marked "expiring soon" above).</p>
+    <button id="generate-btn">Generate weekly meal plan</button>
+
+    <div id="plan-result" class="hidden" style="margin-top:20px;">
+      <div class="score-row">
+        <span class="score" id="waste-score">–</span>
+        <span class="label">waste-reduction score (0–100)<br/>higher = more shared ingredients &amp; less spoilage</span>
+      </div>
+      <div id="recipes-list"></div>
+      <h2 style="margin-top:22px;">Grocery list (only what's missing from pantry)</h2>
+      <ul class="grocery-list" id="grocery-list"></ul>
+    </div>
+  </section>
+
+  <section class="card hidden" id="cook-section">
+    <h2><span class="step-badge">3</span>Cook a recipe → pantry updates automatically</h2>
+    <p class="empty-hint">Marking a recipe as cooked subtracts its ingredients from the pantry.</p>
+    <div id="cook-target"></div>
+    <div id="pantry-after" class="hidden" style="margin-top:18px;">
+      <h2>Pantry after cooking</h2>
+      <div id="pantry-list-after"></div>
+    </div>
+  </section>
+</main>
+
+<p class="footer-note">Backend-only prototype — this page is a demo harness for the API, not the planned iOS/Android app.</p>
+
+<script>
+const API = "";
+let household = null;
+
+function fmtQty(item) {
+  return `${Number(item.quantity)}${item.unit}`;
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const ms = new Date(dateStr).getTime() - Date.now();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
+function renderPantry(items, targetEl) {
+  if (!items.length) {
+    targetEl.innerHTML = '<p class="empty-hint">Pantry is empty.</p>';
+    return;
+  }
+  targetEl.innerHTML = items.map(item => {
+    const d = daysUntil(item.estimatedExpiryDate);
+    const expiring = d !== null && d <= 5;
+    const badge = item.estimatedExpiryDate
+      ? `<span class="badge ${expiring ? "expiring" : "ok"}">${expiring ? `expiring in ${d}d` : `${d}d left`}</span>`
+      : "";
+    return `<div class="pantry-item">
+      <span>${item.ingredientName}${badge}</span>
+      <span class="qty">${fmtQty(item)}</span>
+    </div>`;
+  }).join("");
+}
+
+async function loadHousehold() {
+  const households = await fetch(`${API}/households`).then(r => r.json());
+  household = households[0];
+  document.getElementById("household-name").textContent = household.name;
+  await refreshPantry();
+}
+
+async function refreshPantry() {
+  const items = await fetch(`${API}/pantry-items?householdId=${household.id}`).then(r => r.json());
+  renderPantry(items, document.getElementById("pantry-list"));
+}
+
+document.getElementById("generate-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("generate-btn");
+  btn.disabled = true;
+  btn.textContent = "Generating…";
+  const weekStart = new Date().toISOString().slice(0, 10);
+  const res = await fetch(`${API}/meal-plans/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ householdId: household.id, weekStart }),
+  });
+  const plan = await res.json();
+  btn.textContent = "Regenerate meal plan";
+  btn.disabled = false;
+
+  document.getElementById("waste-score").textContent = plan.wasteScore;
+  document.getElementById("recipes-list").innerHTML = plan.recipes.map(r => `
+    <div class="recipe">
+      <div>
+        <div class="title">${r.recipe.title}</div>
+        <div class="cuisine">${r.recipe.cuisine || ""}</div>
+      </div>
+    </div>
+  `).join("") + (plan.usedNearExpiryIngredients.length
+    ? `<p class="used-flags empty-hint">✅ Uses near-expiry: ${plan.usedNearExpiryIngredients.join(", ")}</p>`
+    : "");
+
+  document.getElementById("grocery-list").innerHTML = plan.groceryList.map(g => `
+    <li><span>${g.ingredientName}</span><span class="amt">${Number(g.quantityNeeded)}${g.unit}</span></li>
+  `).join("") || '<li><span class="empty-hint">Nothing missing — pantry covers this week!</span></li>';
+
+  document.getElementById("plan-result").classList.remove("hidden");
+
+  const cookSection = document.getElementById("cook-section");
+  cookSection.classList.remove("hidden");
+  const first = plan.recipes[0];
+  document.getElementById("cook-target").innerHTML = `
+    <div class="recipe">
+      <div>
+        <div class="title">${first.recipe.title}</div>
+        <div class="cuisine">${first.recipe.cuisine || ""}</div>
+      </div>
+      <button class="secondary" id="cook-btn" data-plan="${plan.id}" data-recipe="${first.id}">Mark as cooked</button>
+    </div>
+  `;
+  document.getElementById("cook-btn").addEventListener("click", async (e) => {
+    const b = e.target;
+    b.disabled = true;
+    b.textContent = "Cooking…";
+    await fetch(`${API}/meal-plans/${b.dataset.plan}/recipes/${b.dataset.recipe}/cook`, { method: "POST" });
+    b.textContent = "Cooked ✓";
+    const items = await fetch(`${API}/pantry-items?householdId=${household.id}`).then(r => r.json());
+    renderPantry(items, document.getElementById("pantry-list-after"));
+    document.getElementById("pantry-after").classList.remove("hidden");
+    renderPantry(items, document.getElementById("pantry-list"));
+  });
+});
+
+loadHousehold();
+</script>
+</body>
+</html>
