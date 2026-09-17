@@ -1,14 +1,15 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient } from "../lib/anthropicClient.js";
+import type { Content, FunctionCall, Part } from "@google/genai";
+import { createPartFromFunctionResponse } from "@google/genai";
+import { getGeminiClient, GEMINI_MODEL } from "../lib/geminiClient.js";
 
-const UPDATE_PROFILE_TOOL: Anthropic.Tool = {
+const UPDATE_PROFILE_FUNCTION_DECLARATION = {
   name: "update_household_profile",
   description:
     "Save or update the household's profile as new information is confirmed in the conversation. " +
     "Call this every time the user gives you a new fact — you can call it many times over the " +
     "conversation, not just once at the end. Only include fields that are new or have changed; " +
     "omit anything not yet known.",
-  input_schema: {
+  parametersJsonSchema: {
     type: "object",
     properties: {
       region: {
@@ -64,7 +65,7 @@ const UPDATE_PROFILE_TOOL: Anthropic.Tool = {
   },
 };
 
-const SYSTEM_PROMPT = `You are a friendly onboarding assistant for a meal-planning app whose main goal is reducing household food waste.
+const SYSTEM_INSTRUCTION = `You are a friendly onboarding assistant for a meal-planning app whose main goal is reducing household food waste.
 
 Have a natural, short-turn conversation — one or two questions at a time, never a long form — to learn:
 - who's in the household, their ages, allergies, and dietary restrictions or goals
@@ -85,51 +86,49 @@ export type OnboardingTurnResult = {
 
 /**
  * Runs one turn of the onboarding conversation: sends the user's message
- * plus prior history to Claude, applies any update_household_profile tool
- * calls via `applyUpdate` (writing straight to the database), and returns
- * once the model produces its next spoken reply.
+ * plus prior history to Gemini, applies any update_household_profile
+ * function calls via `applyUpdate` (writing straight to the database), and
+ * returns once the model produces its next spoken reply.
  */
 export async function continueOnboardingChat(
-  history: Anthropic.MessageParam[],
+  history: Content[],
   userMessage: string,
   applyUpdate: (update: Record<string, unknown>) => Promise<void>
 ): Promise<OnboardingTurnResult> {
-  const client = getAnthropicClient();
-  const messages: Anthropic.MessageParam[] = [...history, { role: "user", content: userMessage }];
+  const client = getGeminiClient();
+  const contents: Content[] = [...history, { role: "user", parts: [{ text: userMessage }] }];
   const profileUpdates: Record<string, unknown>[] = [];
 
   const MAX_TOOL_ITERATIONS = 4;
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const response = await client.messages.create({
-      model: "claude-opus-5",
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      tools: [UPDATE_PROFILE_TOOL],
-      messages,
+    const response = await client.models.generateContent({
+      model: GEMINI_MODEL,
+      contents,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+        tools: [{ functionDeclarations: [UPDATE_PROFILE_FUNCTION_DECLARATION] }],
+      },
     });
 
-    messages.push({ role: "assistant", content: response.content });
-
-    const toolUses = response.content.filter(
-      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-    );
-
-    if (toolUses.length === 0) {
-      const text = response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === "text")
-        .map((block) => block.text)
-        .join("\n");
-      return { reply: text, profileUpdates };
+    const modelContent = response.candidates?.[0]?.content;
+    if (modelContent) {
+      contents.push({ role: "model", parts: modelContent.parts ?? [] });
     }
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const toolUse of toolUses) {
-      const update = toolUse.input as Record<string, unknown>;
+    const functionCalls: FunctionCall[] = response.functionCalls ?? [];
+
+    if (functionCalls.length === 0) {
+      return { reply: response.text ?? "", profileUpdates };
+    }
+
+    const responseParts: Part[] = [];
+    for (const call of functionCalls) {
+      const update = (call.args ?? {}) as Record<string, unknown>;
       await applyUpdate(update);
       profileUpdates.push(update);
-      toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: "saved" });
+      responseParts.push(createPartFromFunctionResponse(call.id ?? call.name ?? "update_household_profile", call.name ?? "update_household_profile", { status: "saved" }));
     }
-    messages.push({ role: "user", content: toolResults });
+    contents.push({ role: "user", parts: responseParts });
   }
 
   throw new Error("Onboarding assistant did not finish responding after several tool calls");

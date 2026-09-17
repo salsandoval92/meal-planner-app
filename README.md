@@ -23,14 +23,14 @@ Included:
   half-used bag of something in the fridge.
 - **A "mark as cooked" action** that automatically subtracts the recipe's
   ingredients from your pantry.
-- **Pantry photo scanning** (`src/services/pantryVision.ts`) — send Claude
+- **Pantry photo scanning** (`src/services/pantryVision.ts`) — send Gemini
   one or more photos of a fridge/freezer/pantry shelf and it identifies the
   items it can see, with an estimated quantity and a confidence level.
   Nothing is saved automatically: you always get a chance to review and edit
   the detected list before it's added to your pantry (per the project
   brief's "never auto-commit silently" rule).
 - **A conversational setup assistant** (`src/services/onboardingAssistant.ts`)
-  — instead of a long form, you chat with Claude about your household
+  — instead of a long form, you chat with Gemini about your household
   (members, allergies, dietary goals), cuisine preferences, kitchen
   equipment, preferred grocery stores, region, budget, and a calorie target
   per serving. It saves each detail as you confirm it, so you can stop and
@@ -46,31 +46,39 @@ Not included yet (on purpose, deferred per the original project brief):
 - Any phone app itself — this is just the backend/server. An iOS or Android
   app would be built separately and would call this API.
 
-## ⚠️ Important: the AI features need your own API key, and cost money to use
+## ⚠️ Important: the AI features need your own free Gemini API key
 
-The pantry photo scan and the setup chat both call the real Claude API
-(`@anthropic-ai/sdk`), not a mock. To use them:
+The pantry photo scan and the setup chat both call Google's real Gemini API
+(`@google/genai`), not a mock. Unlike some other AI APIs, **Gemini has a
+genuinely free tier — no credit card, no billing setup**:
 
-1. Get a key at https://console.anthropic.com/settings/keys (this requires
-   setting up billing on your Anthropic account — separate from any Claude
-   subscription you might have).
-2. Put it in your `.env` file: `ANTHROPIC_API_KEY=sk-ant-...`
+1. Get a key at https://ai.google.dev/aistudio (sign in with a Google
+   account, no payment info needed).
+2. Put it in your `.env` file: `GEMINI_API_KEY=...`
+
+**Free-tier privacy tradeoff, worth knowing before you scan real pantry
+photos:** Google's free tier may use your requests — including the photos
+you upload — to improve their models, unlike their paid tier. That's a
+reasonable tradeoff for trying this out, but worth keeping in mind, and
+worth revisiting (e.g. switching to a paid tier, which turns this off) once
+this moves beyond a personal prototype. See Google's terms at
+https://ai.google.dev/gemini-api/terms for the current details.
+
+The free tier is also rate-limited (fine for personal testing, not for
+serving many users at once) — see https://ai.google.dev/gemini-api/docs/rate-limits
+for current limits.
 
 **I was not able to test these two features against a real key myself** — I
 don't have API credentials in this environment. I built them carefully
-against Anthropic's documented API (structured vision output for the photo
-scan, tool-use for the chat), and verified everything up to the actual model
-call: request validation, file upload handling, database writes, and the
-demo page all work correctly, and a request with no key configured fails
-with a clear error message rather than crashing. But I haven't seen the
-vision detection accuracy or the chat's conversational quality firsthand —
-please try it with your own key and tell me how it goes, since prompt
-wording is the kind of thing that often needs a tuning pass after first
-real use.
-
-Each photo scan and each chat message is a paid API call (roughly a few
-cents each on Claude's current pricing — small for occasional testing, but
-worth being aware of if you're scanning many shelves at once).
+against Google's documented Gemini API (structured JSON output for the photo
+scan, function calling for the chat), and verified everything up to the
+actual model call: request validation, file upload handling, database
+writes, and the demo page all work correctly, and a request with no key
+configured fails with a clear error message rather than crashing. But I
+haven't seen the vision detection accuracy or the chat's conversational
+quality firsthand — please try it with your own key and tell me how it
+goes, since prompt wording is the kind of thing that often needs a tuning
+pass after first real use.
 
 Without a key, everything else still works: manual pantry entry, meal plan
 generation, and cooking — the demo page has a manual "add item" fallback
@@ -89,11 +97,11 @@ src/routes/               The API "endpoints" the URLs a phone app (or the demo 
   onboarding.ts               the setup-chat endpoints
 src/services/
   mealPlanGenerator.ts      the waste-reduction scoring/selection logic
-  pantryVision.ts            calls Claude to detect pantry items from photos
-  onboardingAssistant.ts     runs the setup chat via Claude tool-use
+  pantryVision.ts            calls Gemini to detect pantry items from photos
+  onboardingAssistant.ts     runs the setup chat via Gemini function calling
 src/lib/
   prisma.ts                 boilerplate for talking to the database
-  anthropicClient.ts          boilerplate for talking to the Claude API
+  geminiClient.ts              boilerplate for talking to the Gemini API
 public/index.html          the demo page
 ```
 
@@ -104,7 +112,7 @@ You'll need three things installed on your computer:
    "LTS" version and run the installer)
 2. **PostgreSQL** (a database) — easiest way is via **Docker**:
    install Docker Desktop from https://www.docker.com/products/docker-desktop
-3. (Optional, for the AI features) an Anthropic API key — see above.
+3. (Optional, for the AI features) a free Gemini API key — see above.
 
 Then, in a terminal, from this project's folder:
 
@@ -117,7 +125,7 @@ docker compose up -d
 
 # 3. Copy the example settings file, so the app knows how to reach the database
 cp .env.example .env
-# then open .env and paste in your ANTHROPIC_API_KEY if you have one
+# then open .env and paste in your GEMINI_API_KEY if you have one
 
 # 4. Create the database tables from the schema
 npm run prisma:migrate
@@ -164,7 +172,7 @@ Roughly in order of value:
    the prompts hold up in practice — this is the biggest open unknown right
    now, and the cheapest thing to learn from before building more on top.
 2. **Swap the fixed recipe list for AI-generated candidates** in meal-plan
-   generation — have Claude propose a larger, personalized pool of recipes
+   generation — have Gemini propose a larger, personalized pool of recipes
    based on the household profile the setup chat now collects, then feed
    them into the existing `generateWeeklyMealPlan()` selection logic (it
    already expects exactly this shape of input).

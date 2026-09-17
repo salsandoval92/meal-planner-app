@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
+import type { Content } from "@google/genai";
 import { prisma } from "../lib/prisma.js";
 import { continueOnboardingChat } from "../services/onboardingAssistant.js";
 
@@ -41,9 +41,9 @@ onboardingRouter.post("/:householdId/messages", async (req, res) => {
     where: { householdId },
     orderBy: { createdAt: "asc" },
   });
-  const history: Anthropic.MessageParam[] = priorMessages.map((m) => ({
-    role: m.role === "assistant" ? "assistant" : "user",
-    content: m.content,
+  const history: Content[] = priorMessages.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
   }));
 
   await prisma.onboardingMessage.create({

@@ -176,7 +176,7 @@
   <section class="card">
     <h2><span class="step-badge">1</span>Set up your household</h2>
     <p class="empty-hint">Chat with the setup assistant about who's in your household, allergies, cuisines you like, kitchen equipment, preferred stores, and your grocery budget. It saves details as you go — you don't need to answer everything at once.</p>
-    <p class="empty-hint" id="ai-key-hint">This step calls Claude and needs <code>ANTHROPIC_API_KEY</code> set on the server (see README). If it's not set, use "Use existing demo household" below instead.</p>
+    <p class="empty-hint" id="ai-key-hint">This step calls Gemini and needs <code>GEMINI_API_KEY</code> set on the server (see README — it's a free key, no credit card). If it's not set, use "Use existing demo household" below instead.</p>
     <div id="onboarding-start">
       <button id="start-onboarding-btn">Start household setup chat</button>
       <button class="secondary" id="use-existing-btn" style="margin-left:8px;">Use existing demo household</button>
@@ -196,7 +196,7 @@
 
   <section class="card" id="scan-section">
     <h2><span class="step-badge">2</span>Build your pantry from photos</h2>
-    <p class="empty-hint">Take one photo per shelf/zone (fridge, freezer, pantry) and Claude will identify what's in it. Nothing is saved until you review and confirm the list below.</p>
+    <p class="empty-hint">Take one photo per shelf/zone (fridge, freezer, pantry) and Gemini will identify what's in it. Nothing is saved until you review and confirm the list below.</p>
     <div class="scan-controls">
       <select id="storage-method">
         <option value="FRIDGE">Fridge</option>
