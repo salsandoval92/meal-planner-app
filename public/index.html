@@ -15,6 +15,7 @@
     --amber: #b5762b;
     --red: #b5432b;
     --border: #e4e0d6;
+    --chip-bg: #eef0e8;
   }
   * { box-sizing: border-box; }
   body {
@@ -76,6 +77,7 @@
   }
   .badge.expiring { background: #fbe8de; color: var(--red); }
   .badge.ok { background: #e7f0e3; color: var(--green-dark); }
+  .badge.photo { background: #e7eef7; color: #2b5db5; }
   button {
     background: var(--green);
     color: white;
@@ -94,6 +96,16 @@
     border: 1.5px solid var(--green);
     padding: 8px 14px;
     font-size: 13px;
+  }
+  button.small {
+    padding: 6px 12px;
+    font-size: 12.5px;
+    border-radius: 8px;
+  }
+  button.danger.small {
+    background: transparent;
+    color: var(--red);
+    border: 1.5px solid var(--red);
   }
   .score-row {
     display: flex;
@@ -127,23 +139,100 @@
   .grocery-list .amt { color: var(--muted); }
   .hidden { display: none; }
   .empty-hint { color: var(--muted); font-size: 14px; }
+  .error-hint { color: var(--red); font-size: 13.5px; margin-top: 10px; }
   .footer-note { color: var(--muted); font-size: 12.5px; margin-top: 30px; text-align: center; }
+
+  /* Onboarding chat */
+  .chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; max-height: 340px; overflow-y: auto; }
+  .bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 14.5px; line-height: 1.4; }
+  .bubble.assistant { background: var(--chip-bg); align-self: flex-start; border-bottom-left-radius: 4px; }
+  .bubble.user { background: var(--green); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row input[type=text] {
+    flex: 1; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border); font-size: 14.5px;
+  }
+  .profile-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip { background: var(--chip-bg); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; color: var(--ink); }
+  .chip strong { color: var(--green-dark); }
+  .done-banner { background: #e7f0e3; color: var(--green-dark); padding: 10px 14px; border-radius: 10px; font-size: 14px; margin-top: 14px; }
+
+  /* Pantry scan */
+  .scan-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  select, input[type=file] { font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: white; }
+  .detected-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .detected-row input { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13.5px; }
+  .confidence-note { font-size: 11.5px; color: var(--muted); grid-column: 1 / -1; margin-top: -4px; margin-bottom: 4px; }
+  .manual-add-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; margin-top: 10px; }
+  .manual-add-row input { padding: 9px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 13.5px; }
 </style>
 </head>
 <body>
 <header>
   <h1>🥗 Meal Planner — Waste Reduction Demo</h1>
-  <p>Household: <strong id="household-name">loading…</strong> · This page walks through the core loop: pantry → weekly meal plan → cook & update pantry.</p>
+  <p>Household: <strong id="household-name">none selected</strong> · Backend-only demo — this page exercises the real API, not the planned iOS/Android app.</p>
 </header>
 
 <main>
   <section class="card">
-    <h2><span class="step-badge">1</span>Current pantry</h2>
-    <div id="pantry-list"><p class="empty-hint">Loading pantry…</p></div>
+    <h2><span class="step-badge">1</span>Set up your household</h2>
+    <p class="empty-hint">Chat with the setup assistant about who's in your household, allergies, cuisines you like, kitchen equipment, preferred stores, and your grocery budget. It saves details as you go — you don't need to answer everything at once.</p>
+    <p class="empty-hint" id="ai-key-hint">This step calls Claude and needs <code>ANTHROPIC_API_KEY</code> set on the server (see README). If it's not set, use "Use existing demo household" below instead.</p>
+    <div id="onboarding-start">
+      <button id="start-onboarding-btn">Start household setup chat</button>
+      <button class="secondary" id="use-existing-btn" style="margin-left:8px;">Use existing demo household</button>
+    </div>
+
+    <div id="onboarding-chat" class="hidden" style="margin-top:16px;">
+      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Type your reply…" />
+        <button id="chat-send-btn">Send</button>
+      </div>
+      <div id="chat-error" class="error-hint hidden"></div>
+      <div class="profile-chips" id="profile-chips"></div>
+      <div id="done-banner" class="done-banner hidden">✅ Setup complete — you can keep chatting to add more, or move on to scanning your pantry below.</div>
+    </div>
+  </section>
+
+  <section class="card" id="scan-section">
+    <h2><span class="step-badge">2</span>Build your pantry from photos</h2>
+    <p class="empty-hint">Take one photo per shelf/zone (fridge, freezer, pantry) and Claude will identify what's in it. Nothing is saved until you review and confirm the list below.</p>
+    <div class="scan-controls">
+      <select id="storage-method">
+        <option value="FRIDGE">Fridge</option>
+        <option value="FREEZER">Freezer</option>
+        <option value="PANTRY">Pantry</option>
+      </select>
+      <input type="file" id="photo-input" accept="image/png,image/jpeg,image/webp" multiple />
+      <button id="scan-btn">Scan shelf</button>
+    </div>
+    <div id="scan-error" class="error-hint hidden"></div>
+
+    <div id="detected-items" class="hidden">
+      <h2 style="margin-top:18px;">Review detected items</h2>
+      <div id="detected-rows"></div>
+      <button class="secondary small" id="add-detected-row-btn">+ Add row</button>
+      <div style="margin-top:14px;">
+        <button id="confirm-scan-btn">Add reviewed items to pantry</button>
+      </div>
+    </div>
+
+    <h2 style="margin-top:22px;">Or add an item manually</h2>
+    <div class="manual-add-row">
+      <input type="text" id="manual-name" placeholder="Ingredient (e.g. spinach)" />
+      <input type="text" id="manual-qty" placeholder="Quantity (e.g. 200)" />
+      <input type="text" id="manual-unit" placeholder="Unit (e.g. g)" />
+      <button class="secondary small" id="manual-add-btn">Add</button>
+    </div>
   </section>
 
   <section class="card">
-    <h2><span class="step-badge">2</span>Generate this week's meal plan</h2>
+    <h2><span class="step-badge">3</span>Current pantry</h2>
+    <div id="pantry-list"><p class="empty-hint">Select or set up a household above to see its pantry.</p></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step-badge">4</span>Generate this week's meal plan</h2>
     <p class="empty-hint">Picks 5 recipes that share ingredients and prioritize what's about to expire (marked "expiring soon" above).</p>
     <button id="generate-btn">Generate weekly meal plan</button>
 
@@ -159,7 +248,7 @@
   </section>
 
   <section class="card hidden" id="cook-section">
-    <h2><span class="step-badge">3</span>Cook a recipe → pantry updates automatically</h2>
+    <h2><span class="step-badge">5</span>Cook a recipe → pantry updates automatically</h2>
     <p class="empty-hint">Marking a recipe as cooked subtracts its ingredients from the pantry.</p>
     <div id="cook-target"></div>
     <div id="pantry-after" class="hidden" style="margin-top:18px;">
@@ -173,7 +262,7 @@
 
 <script>
 const API = "";
-let household = null;
+let household = null; // current household object, refreshed after each mutation
 
 function fmtQty(item) {
   return `${Number(item.quantity)}${item.unit}`;
@@ -193,29 +282,263 @@ function renderPantry(items, targetEl) {
   targetEl.innerHTML = items.map(item => {
     const d = daysUntil(item.estimatedExpiryDate);
     const expiring = d !== null && d <= 5;
-    const badge = item.estimatedExpiryDate
+    const expiryBadge = item.estimatedExpiryDate
       ? `<span class="badge ${expiring ? "expiring" : "ok"}">${expiring ? `expiring in ${d}d` : `${d}d left`}</span>`
       : "";
+    const sourceBadge = item.source === "PHOTO" ? '<span class="badge photo">from photo</span>' : "";
     return `<div class="pantry-item">
-      <span>${item.ingredientName}${badge}</span>
+      <span>${item.ingredientName}${expiryBadge}${sourceBadge}</span>
       <span class="qty">${fmtQty(item)}</span>
     </div>`;
   }).join("");
 }
 
-async function loadHousehold() {
-  const households = await fetch(`${API}/households`).then(r => r.json());
-  household = households[0];
-  document.getElementById("household-name").textContent = household.name;
+async function setHousehold(h) {
+  household = h;
+  document.getElementById("household-name").textContent = h.name;
   await refreshPantry();
 }
 
 async function refreshPantry() {
+  if (!household) return;
   const items = await fetch(`${API}/pantry-items?householdId=${household.id}`).then(r => r.json());
   renderPantry(items, document.getElementById("pantry-list"));
 }
 
+// ---------- Step 1: onboarding chat ----------
+
+document.getElementById("use-existing-btn").addEventListener("click", async () => {
+  const households = await fetch(`${API}/households`).then(r => r.json());
+  if (!households.length) {
+    alert("No existing households found — try the setup chat instead.");
+    return;
+  }
+  await setHousehold(households[0]);
+  document.getElementById("onboarding-start").classList.add("hidden");
+});
+
+document.getElementById("start-onboarding-btn").addEventListener("click", async () => {
+  const res = await fetch(`${API}/onboarding/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "My Household" }),
+  });
+  const { household: h } = await res.json();
+  await setHousehold(h);
+
+  document.getElementById("onboarding-start").classList.add("hidden");
+  document.getElementById("onboarding-chat").classList.remove("hidden");
+  addChatBubble("assistant", "Hi! Tell me a bit about your household — who's cooking for, any allergies or dietary needs, cuisines you like, and roughly what your weekly grocery budget looks like. We can go step by step.");
+});
+
+function addChatBubble(role, text) {
+  const log = document.getElementById("chat-log");
+  const div = document.createElement("div");
+  div.className = `bubble ${role}`;
+  div.textContent = text;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderProfileChips(h) {
+  const chips = [];
+  if (h.region) chips.push(`<span class="chip">📍 <strong>${h.region}</strong></span>`);
+  if (h.budgetTarget) chips.push(`<span class="chip">💰 <strong>$${Number(h.budgetTarget)}</strong>/week</span>`);
+  if (h.calorieTargetPerServing) chips.push(`<span class="chip">🔥 <strong>${h.calorieTargetPerServing}</strong> cal/serving</span>`);
+  (h.cuisinePreferences || []).forEach(c => chips.push(`<span class="chip">${c}</span>`));
+  (h.preferredStores || []).forEach(s => chips.push(`<span class="chip">🛒 ${s}</span>`));
+  (h.kitchenEquipment || []).forEach(e => chips.push(`<span class="chip">🍳 ${e}</span>`));
+  (h.members || []).forEach(m => {
+    const bits = [m.name];
+    if (m.age) bits.push(`${m.age}y`);
+    if (m.allergies && m.allergies.length) bits.push(`⚠️ ${m.allergies.join(", ")}`);
+    chips.push(`<span class="chip">${bits.join(" · ")}</span>`);
+  });
+  document.getElementById("profile-chips").innerHTML = chips.join("");
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById("chat-input");
+  const text = input.value.trim();
+  if (!text || !household) return;
+  input.value = "";
+  document.getElementById("chat-error").classList.add("hidden");
+  addChatBubble("user", text);
+
+  const sendBtn = document.getElementById("chat-send-btn");
+  sendBtn.disabled = true;
+  sendBtn.textContent = "…";
+
+  try {
+    const res = await fetch(`${API}/onboarding/${household.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "Onboarding assistant failed");
+    }
+    addChatBubble("assistant", data.reply);
+    household = data.household;
+    renderProfileChips(household);
+    document.getElementById("household-name").textContent = household.name;
+    if (data.done) {
+      document.getElementById("done-banner").classList.remove("hidden");
+    }
+    await refreshPantry();
+  } catch (err) {
+    const errEl = document.getElementById("chat-error");
+    errEl.textContent = err.message;
+    errEl.classList.remove("hidden");
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Send";
+  }
+}
+
+document.getElementById("chat-send-btn").addEventListener("click", sendChatMessage);
+document.getElementById("chat-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendChatMessage();
+});
+
+// ---------- Step 2: pantry photo scan ----------
+
+let detectedItems = [];
+
+function renderDetectedRows() {
+  const container = document.getElementById("detected-rows");
+  container.innerHTML = detectedItems.map((item, i) => `
+    <div class="detected-row" data-index="${i}">
+      <input type="text" class="d-name" value="${item.ingredientName}" />
+      <input type="text" class="d-qty" value="${item.estimatedQuantity ?? item.quantity ?? ""}" />
+      <input type="text" class="d-unit" value="${item.unit}" />
+      <button class="danger small remove-row" data-index="${i}">Remove</button>
+    </div>
+    ${item.confidence === "low" ? `<div class="confidence-note">⚠️ low confidence${item.note ? " — " + item.note : ""}</div>` : ""}
+  `).join("");
+  container.querySelectorAll(".remove-row").forEach(btn => {
+    btn.addEventListener("click", () => {
+      detectedItems.splice(Number(btn.dataset.index), 1);
+      renderDetectedRows();
+    });
+  });
+  document.getElementById("detected-items").classList.toggle("hidden", detectedItems.length === 0);
+}
+
+document.getElementById("add-detected-row-btn").addEventListener("click", () => {
+  detectedItems.push({ ingredientName: "", estimatedQuantity: "", unit: "" });
+  renderDetectedRows();
+});
+
+document.getElementById("scan-btn").addEventListener("click", async () => {
+  if (!household) {
+    alert("Set up or select a household first (step 1).");
+    return;
+  }
+  const files = document.getElementById("photo-input").files;
+  if (!files.length) {
+    alert("Choose at least one photo first.");
+    return;
+  }
+  const scanBtn = document.getElementById("scan-btn");
+  scanBtn.disabled = true;
+  scanBtn.textContent = "Analyzing photos…";
+  document.getElementById("scan-error").classList.add("hidden");
+
+  const formData = new FormData();
+  formData.append("householdId", household.id);
+  formData.append("storageMethod", document.getElementById("storage-method").value);
+  for (const file of files) formData.append("images", file);
+
+  try {
+    const res = await fetch(`${API}/pantry-items/scan`, { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Scan failed");
+    detectedItems = data.items;
+    renderDetectedRows();
+  } catch (err) {
+    const errEl = document.getElementById("scan-error");
+    errEl.textContent = err.message;
+    errEl.classList.remove("hidden");
+  } finally {
+    scanBtn.disabled = false;
+    scanBtn.textContent = "Scan shelf";
+  }
+});
+
+document.getElementById("confirm-scan-btn").addEventListener("click", async () => {
+  if (!household) return;
+  const rows = [...document.querySelectorAll(".detected-row")];
+  const items = rows.map(row => ({
+    ingredientName: row.querySelector(".d-name").value.trim(),
+    quantity: Number(row.querySelector(".d-qty").value),
+    unit: row.querySelector(".d-unit").value.trim(),
+  })).filter(i => i.ingredientName && i.quantity > 0 && i.unit);
+
+  if (!items.length) {
+    alert("Nothing valid to add — check the quantities.");
+    return;
+  }
+
+  const res = await fetch(`${API}/pantry-items/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      householdId: household.id,
+      storageMethod: document.getElementById("storage-method").value,
+      items,
+    }),
+  });
+  if (!res.ok) {
+    const data = await res.json();
+    alert(data.error || "Could not add items");
+    return;
+  }
+  detectedItems = [];
+  renderDetectedRows();
+  document.getElementById("photo-input").value = "";
+  await refreshPantry();
+});
+
+document.getElementById("manual-add-btn").addEventListener("click", async () => {
+  if (!household) {
+    alert("Set up or select a household first (step 1).");
+    return;
+  }
+  const name = document.getElementById("manual-name").value.trim();
+  const quantity = Number(document.getElementById("manual-qty").value);
+  const unit = document.getElementById("manual-unit").value.trim();
+  if (!name || !quantity || !unit) {
+    alert("Fill in ingredient, quantity, and unit.");
+    return;
+  }
+  await fetch(`${API}/pantry-items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      householdId: household.id,
+      ingredientName: name,
+      quantity,
+      unit,
+      storageMethod: document.getElementById("storage-method").value,
+      purchaseDate: new Date().toISOString(),
+      source: "MANUAL",
+    }),
+  });
+  document.getElementById("manual-name").value = "";
+  document.getElementById("manual-qty").value = "";
+  document.getElementById("manual-unit").value = "";
+  await refreshPantry();
+});
+
+// ---------- Step 4/5: meal plan + cook ----------
+
 document.getElementById("generate-btn").addEventListener("click", async () => {
+  if (!household) {
+    alert("Set up or select a household first (step 1).");
+    return;
+  }
   const btn = document.getElementById("generate-btn");
   btn.disabled = true;
   btn.textContent = "Generating…";
@@ -228,6 +551,11 @@ document.getElementById("generate-btn").addEventListener("click", async () => {
   const plan = await res.json();
   btn.textContent = "Regenerate meal plan";
   btn.disabled = false;
+
+  if (!res.ok) {
+    alert(plan.error || "Could not generate a meal plan");
+    return;
+  }
 
   document.getElementById("waste-score").textContent = plan.wasteScore;
   document.getElementById("recipes-list").innerHTML = plan.recipes.map(r => `
@@ -272,7 +600,17 @@ document.getElementById("generate-btn").addEventListener("click", async () => {
   });
 });
 
-loadHousehold();
+// ---------- initial load ----------
+
+(async () => {
+  // Pre-select the most recent household (if any) so pantry/meal-plan
+  // sections aren't empty on load, but leave the onboarding buttons visible
+  // so "start a fresh chat" stays available even when demo data exists.
+  const households = await fetch(`${API}/households`).then(r => r.json());
+  if (households.length) {
+    await setHousehold(households[households.length - 1]);
+  }
+})();
 </script>
 </body>
 </html>

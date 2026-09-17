@@ -27,14 +27,36 @@ model Household {
   name        String
   region      String // e.g. "US-TX" or "AE" — drives shelf-life + pricing lookups
   budgetTarget Decimal?         @map("budget_target") @db.Decimal(10, 2)
+  // Filled in conversationally by the onboarding assistant (see src/services/onboardingAssistant.ts).
+  cuisinePreferences      String[] @default([]) @map("cuisine_preferences")
+  preferredStores         String[] @default([]) @map("preferred_stores")
+  kitchenEquipment        String[] @default([]) @map("kitchen_equipment")
+  calorieTargetPerServing Int?     @map("calorie_target_per_serving")
+  onboardingComplete      Boolean  @default(false) @map("onboarding_complete")
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
 
-  members      HouseholdMember[]
-  pantryItems  PantryItem[]
-  mealPlans    MealPlan[]
+  members            HouseholdMember[]
+  pantryItems        PantryItem[]
+  mealPlans          MealPlan[]
+  onboardingMessages OnboardingMessage[]
 
   @@map("household")
+}
+
+// Transcript of the conversational onboarding chat, so the assistant can
+// resume a household's setup conversation across separate API requests.
+model OnboardingMessage {
+  id          String   @id @default(uuid())
+  householdId String   @map("household_id")
+  role        String // "user" | "assistant"
+  content     String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@index([householdId])
+  @@map("onboarding_message")
 }
 
 model HouseholdMember {
